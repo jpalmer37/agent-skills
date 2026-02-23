@@ -1,8 +1,6 @@
 ---
 name: Nextflow Pipelines
 description: Create production-quality, containerized bioinformatics pipelines with Nextflow DSL2. Use when building portable pipelines with container support, running workflows on HPC/cloud platforms, or following nf-core best practices for reproducible analysis.
-tool_type: cli
-primary_tool: Nextflow
 ---
 
 # Nextflow Pipelines

@@ -222,12 +222,22 @@ process MEMORY_INTENSIVE {
     label 'process_high'
     errorStrategy { task.exitStatus in [137, 140, 143] ? 'retry' : 'finish' }
     maxRetries 3
-    memory { 16.GB * task.attempt }
+    memory { 16.GB * task.attempt }  // Scales linearly: 16 GB → 32 GB → 48 GB
     time   { 4.h  * task.attempt }
 
     // Exit codes: 137=OOM killed, 140=SIGTERM timeout, 143=SIGTERM
 }
 ```
+
+Since Nextflow v24.10, you can scale based on *actual measured memory* from the previous attempt rather than just the attempt count:
+
+```groovy
+process MEMORY_INTENSIVE {
+    memory { task.previousTrace?.memory ? task.previousTrace.memory * 2 : 16.GB }
+}
+```
+
+This is more precise than linear attempt-based scaling when actual memory usage varies significantly across samples.
 
 ### Error strategy options
 ```groovy
@@ -238,8 +248,24 @@ errorStrategy 'retry'       // Retry failed tasks
 ```
 
 ### Resource capping
+
+The modern approach uses the native `resourceLimits` config directive, which caps any resource directive to the specified maximum:
+
 ```groovy
-// In conf/base.config
+// In nextflow.config or conf/base.config
+process {
+    resourceLimits = [
+        cpus:   params.max_cpus,
+        memory: params.max_memory,
+        time:   params.max_time
+    ]
+}
+```
+
+Older nf-core pipelines use a `check_max()` helper function instead — you may encounter this in legacy code:
+
+```groovy
+// Legacy pattern (conf/base.config in older nf-core pipelines)
 def check_max(obj, type) {
     if (type == 'memory') {
         return obj.compareTo(params.max_memory as nextflow.util.MemoryUnit) == 1
@@ -252,6 +278,8 @@ def check_max(obj, type) {
     }
 }
 ```
+
+Prefer `resourceLimits` for new pipelines; it requires no helper function and is less error-prone.
 
 ## Logging and Reporting
 
@@ -404,6 +432,17 @@ process SAMTOOLS_SORT {
 This template demonstrates all nf-core conventions:
 - Tri-container pattern (conda/singularity/docker)
 - `task.ext.prefix` and `task.ext.args` for configurability
-- `task.ext.when` for conditional execution
+- `task.ext.when` for conditional execution (see note below)
 - `versions.yml` provenance tracking
 - Metadata map (`meta`) for sample tracking
+
+> **Note on `when:` and `task.ext.when`:** The `when:` block is a Nextflow feature, but the official Nextflow docs discourage it in favor of handling conditionals in the calling workflow (e.g. `if` statements or `.filter()` operators). The `task.ext.when` pattern is an nf-core community convention built on Nextflow's `ext` namespace — it is not a core Nextflow feature. When building new pipelines, prefer workflow-level conditionals unless you are strictly following nf-core module conventions.
+>
+> **Configuring `task.ext.when` via `modules.config`:**
+> ```groovy
+> process {
+>     withName: 'SAMTOOLS_SORT' {
+>         ext.when = { meta.aligner == 'bwa' }  // Disable for non-bwa runs
+>     }
+> }
+> ```

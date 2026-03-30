@@ -41,7 +41,6 @@ If code fails due to version mismatch, check `<tool> --help` to confirm flags an
 
 ```groovy
 #!/usr/bin/env nextflow
-nextflow.enable.dsl=2
 
 params.reads = "data/*_{1,2}.fq.gz"
 params.outdir = "results"
@@ -166,7 +165,6 @@ process FASTQC {
 ```groovy
 // main.nf
 #!/usr/bin/env nextflow
-nextflow.enable.dsl=2
 
 include { FASTQC } from './modules/local/fastqc'
 include { FASTP  } from './modules/local/fastp'
@@ -208,6 +206,11 @@ process {
     time   = 1.h
     
     // Resource labels
+    withLabel: 'process_single' {
+        cpus   = 1
+        memory = 4.GB
+        time   = 1.h
+    }
     withLabel: 'process_low' {
         cpus   = 2
         memory = 4.GB
@@ -223,6 +226,13 @@ process {
         memory = 64.GB
         time   = 12.h
     }
+
+    // Cap resources to system/cluster limits
+    resourceLimits = [
+        cpus:   params.max_cpus,
+        memory: params.max_memory,
+        time:   params.max_time
+    ]
 }
 
 profiles {
@@ -496,23 +506,25 @@ aws {
 nextflow run main.nf -profile awsbatch -bucket-dir s3://my-bucket/work
 ```
 
-### Google Cloud
+### Google Cloud Batch
 
 ```groovy
 // conf/google.config
 process {
-    executor = 'google-lifesciences'
+    executor = 'google-batch'
 }
 
 google {
-    region = 'us-central1'
-    project = 'my-project-id'
+    batch.location = 'us-central1'
+    project        = 'my-project-id'
 }
 ```
 
 ```bash
 nextflow run main.nf -profile google -bucket-dir gs://my-bucket/work
 ```
+
+> **Note:** `google-lifesciences` was replaced by `google-batch` (Google Cloud Batch) in Nextflow v22.07. The config key also changed from `google.region` to `google.batch.location`.
 
 ## Resource Management
 
@@ -522,6 +534,11 @@ Define standard resource tiers in `nextflow.config`:
 
 ```groovy
 process {
+    withLabel: 'process_single' {
+        cpus   = 1
+        memory = 4.GB
+        time   = 1.h
+    }
     withLabel: 'process_low' {
         cpus   = 2
         memory = 4.GB
@@ -556,9 +573,18 @@ process MEMORY_INTENSIVE {
     label 'process_high'
     errorStrategy { task.exitStatus in [137,140,143] ? 'retry' : 'finish' }
     maxRetries 3
-    memory { 16.GB * task.attempt }  // Doubles each retry
+    memory { 16.GB * task.attempt }  // Scales linearly: 16 GB → 32 GB → 48 GB
     time   { 4.h * task.attempt }
 }
+```
+
+Since Nextflow v24.10 you can scale based on *actual measured metrics* from the previous attempt rather than just the attempt count:
+
+```groovy
+process MEMORY_INTENSIVE {
+    memory { task.previousTrace?.memory ? task.previousTrace.memory * 2 : 16.GB }
+}
+```
 
 ## Error Handling and Resume
 
@@ -645,6 +671,37 @@ nextflow run main.nf \\
     -with-dag dag.png
 ```
 
+## Dry-Run Testing (`stub:`)
+
+The `stub:` block runs instead of `script:` when the pipeline is invoked with `-stub` or `-stub-run`. It lets you verify workflow logic, channel flow, and file-name expectations without running expensive jobs — useful for rapid iteration and CI checks.
+
+```groovy
+process BWA_MEM {
+    input:
+    tuple val(meta), path(reads)
+    path genome
+
+    output:
+    tuple val(meta), path("*.bam"), emit: bam
+
+    stub:
+    """
+    touch ${meta.id}.bam
+    """
+
+    script:
+    """
+    bwa mem -t ${task.cpus} ${genome} ${reads} | samtools view -bS - > ${meta.id}.bam
+    """
+}
+```
+
+```bash
+nextflow run main.nf -stub        # runs stub blocks, skips real computation
+```
+
+The stub block should create the expected output files so downstream processes can continue. This is much faster than a test profile running real data.
+
 ## Complete Example: RNA-seq Pipeline
 
 See **[examples/rnaseq.nf](examples/rnaseq.nf)** for a production-quality RNA-seq pipeline with:
@@ -660,7 +717,7 @@ See **[examples/rnaseq.nf](examples/rnaseq.nf)** for a production-quality RNA-se
 
 When building Nextflow pipelines, ensure:
 
-- [ ] Use DSL2 (`nextflow.enable.dsl=2`)
+- [ ] Use DSL2 (the default since v22.03 — no need to add `nextflow.enable.dsl=2`)
 - [ ] Apply tri-container pattern to all processes (conda + docker + singularity)
 - [ ] Emit `versions.yml` from every process
 - [ ] Use `meta` map for sample metadata (nf-core pattern)

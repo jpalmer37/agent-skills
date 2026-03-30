@@ -1,5 +1,4 @@
 #!/usr/bin/env nextflow
-nextflow.enable.dsl=2
 
 params.reads = "data/*_{1,2}.fq.gz"
 params.salmon_index = "ref/salmon_index"
@@ -27,6 +26,7 @@ process FASTP {
     output:
     tuple val(sample_id), path("${sample_id}_trimmed_{1,2}.fq.gz"), emit: reads
     path("${sample_id}_fastp.json"), emit: json
+    path "versions.yml"            , emit: versions
 
     script:
     """
@@ -37,6 +37,11 @@ process FASTP {
         -O ${sample_id}_trimmed_2.fq.gz \\
         --json ${sample_id}_fastp.json \\
         --thread ${task.cpus}
+
+    cat <<-END_VERSIONS > versions.yml
+    "${task.process}":
+        fastp: \$(fastp --version 2>&1 | sed -e 's/fastp //')
+    END_VERSIONS
     """
 }
 
@@ -52,6 +57,7 @@ process SALMON_QUANT {
 
     output:
     tuple val(sample_id), path("${sample_id}"), emit: quant
+    path "versions.yml"                        , emit: versions
 
     script:
     """
@@ -63,6 +69,11 @@ process SALMON_QUANT {
         -o ${sample_id} \\
         --threads ${task.cpus} \\
         --validateMappings
+
+    cat <<-END_VERSIONS > versions.yml
+    "${task.process}":
+        salmon: \$(salmon --version | sed -e 's/salmon //')
+    END_VERSIONS
     """
 }
 

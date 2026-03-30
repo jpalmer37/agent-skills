@@ -35,10 +35,17 @@ Channel.fromPath("data/*.bam", checkIfExists: true)
 Channel.fromPath(["data/*.bam", "data/*.cram"])  // Multiple patterns
 ```
 
-### fromSamplesheet (nf-validation plugin)
+### fromSamplesheet (nf-schema plugin)
 ```groovy
 Channel.fromSamplesheet("input")  // reads from params.input using schema
 ```
+
+> **Plugin note:** `Channel.fromSamplesheet` was provided by the `nf-validation` plugin, which is now deprecated. Use the `nf-schema` plugin instead — it provides the same API with improvements. Add to `nextflow.config`:
+> ```groovy
+> plugins {
+>     id 'nf-schema@2.1.0'
+> }
+> ```
 
 ### of / value / empty
 ```groovy
